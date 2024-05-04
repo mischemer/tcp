@@ -89,6 +89,7 @@ public class TCPReceiver
 
             DatagramPacket receive = new DatagramPacket(buf, buf.length);
             listenOnSocket.receive(receive);
+            System.out.println("Received syn");
 
 
             portToSend = receive.getPort();
@@ -96,6 +97,8 @@ public class TCPReceiver
 
             byte[] packet = createTCPPacket(0, 1, new byte[0], 1, 0, 1);
             listenOnSocket.send(new DatagramPacket(packet, packet.length, addressToSend, portToSend));
+
+            listenOnSocket.receive(receive);
             System.out.println("Finished Handshake");
         }
 
@@ -125,10 +128,27 @@ public class TCPReceiver
         return ByteBuffer.wrap(a).getLong();
     }
 
-    public int getLengthFlags(byte[] packet)
+    public int getLength(byte[] packet)
     {
         byte[] a = parsePacket(packet, 16, 4);
-        return ByteBuffer.wrap(a).getInt();
+        return ByteBuffer.wrap(a).getInt()>>3;
+    }
+
+    public int getfFlag(byte[] packet)
+    {
+        byte[] a = parsePacket(packet, 16, 4);
+        return ByteBuffer.wrap(a).getInt() & (1<<1);
+    }
+
+    public int getsFlag(byte[] packet)
+    {
+        byte[] a = parsePacket(packet, 16, 4);
+        return ByteBuffer.wrap(a).getInt() & (1<<2);
+    }
+    public int getaFlag(byte[] packet)
+    {
+        byte[] a = parsePacket(packet, 16, 4);
+        return ByteBuffer.wrap(a).getInt() & (1<<0);
     }
 
     public int getCheck(byte[] packet)
@@ -150,8 +170,12 @@ public class TCPReceiver
     {
         int length = data.length;
         int capacity = 24 + length;
-        int checksum = 0;
-        int lengthFlags = (length * 8) + (sFlag * 4) + (fFlag * 2) + aFlag;
+        short checksum = 0;
+        int lengthFlags = length << 3;
+        lengthFlags = lengthFlags | (aFlag << 0); 
+        lengthFlags = lengthFlags | (fFlag << 1); 
+        lengthFlags = lengthFlags | (sFlag << 2); 
+        short zero = 0;
         
         //create packet with 24 + data length
         ByteBuffer packet = ByteBuffer.allocate(capacity);
@@ -160,8 +184,8 @@ public class TCPReceiver
         packet.put( ByteBuffer.allocate(4).putInt(ack).array() );
         packet.put( ByteBuffer.allocate(8).putLong(System.nanoTime()).array());
         packet.put( ByteBuffer.allocate(4).putInt(lengthFlags).array() );
-        packet.put( ByteBuffer.allocate(2).putInt(0).array() );
-        packet.put( ByteBuffer.allocate(2).putInt(checksum).array() );
+        packet.put( ByteBuffer.allocate(2).putShort(zero).array() );
+        packet.put( ByteBuffer.allocate(2).putShort(checksum).array() );
         packet.put( ByteBuffer.allocate(length).put(data).array() );
 
         return packet.array();

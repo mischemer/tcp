@@ -58,14 +58,16 @@ public class TCPSender
 
             byte[] packet = createTCPPacket(0, 0, new byte[0], 1, 0 ,0);
             socket.send(new DatagramPacket(packet, packet.length, address, remotePort));
+            System.out.println("Send syn");
 
             byte[] buf = new byte[mtu+24];
             DatagramPacket receive = new DatagramPacket(buf, buf.length);
+            socket.receive(receive);
+            System.out.println("Received ack");
 
             packet = createTCPPacket(0, 1, new byte[0], 0, 0 ,1);
             socket.send(new DatagramPacket(packet, packet.length, address, remotePort));
 
-           socket.receive(receive);
 
            System.out.println("Finished Handshake Sender");
         }
@@ -120,6 +122,7 @@ public class TCPSender
                     try{
                     sem.release();
                     socket.send(new DatagramPacket(packet, packet.length, address, remotePort));
+                    System.out.println("Sending packet");
                     }
                     catch(Exception e)
                     {}
@@ -139,17 +142,19 @@ public class TCPSender
     
         try
         {
-            this.socket = new DatagramSocket(this.port);
             byte[] packet = createTCPPacket(seq, 1, new byte[0], 0, 1, 0);
             socket.send(new DatagramPacket(packet, packet.length, address, remotePort));
+            System.out.println("Send Fin");
 
             byte[] buf = new byte[mtu+24];
             DatagramPacket receive = new DatagramPacket(buf, buf.length);
+            socket.receive(receive);
+            System.out.println("Receive fin ak");
 
             packet = createTCPPacket(seq+1, 2, new byte[0], 0, 0, 1);
             socket.send(new DatagramPacket(packet, packet.length, address, remotePort));
 
-            socket.receive(receive);
+
 
             System.out.println("Finished FIN protocol");
 
@@ -179,8 +184,12 @@ public class TCPSender
     {
         int length = data.length;
         int capacity = 24 + length;
-        int checksum = 0;
-        int lengthFlags = (length*8) + (sFlag*4) + (fFlag*2) + aFlag;
+        short checksum = 0;
+        int lengthFlags = length << 3;
+        lengthFlags = lengthFlags | (aFlag << 0); 
+        lengthFlags = lengthFlags | (fFlag << 1); 
+        lengthFlags = lengthFlags | (sFlag << 2); 
+	    short zero = 0;
 
         //create packet with 24 + data length
         ByteBuffer packet = ByteBuffer.allocate(capacity);
@@ -189,8 +198,8 @@ public class TCPSender
         packet.put( ByteBuffer.allocate(4).putInt(ack).array() );
         packet.put( ByteBuffer.allocate(8).putLong(System.nanoTime()).array() );
         packet.put( ByteBuffer.allocate(4).putInt(lengthFlags).array() );
-        packet.put( ByteBuffer.allocate(4).putInt(0).array() );
-        packet.put( ByteBuffer.allocate(4).putInt(checksum).array() );
+        packet.put( ByteBuffer.allocate(2).putShort(zero).array() );
+        packet.put( ByteBuffer.allocate(2).putShort(checksum).array() );
         packet.put( ByteBuffer.allocate(length).put(data).array() );
 
         return packet.array();
@@ -338,11 +347,29 @@ public class TCPSender
         return ByteBuffer.wrap(a).getLong();
     }
 
-    public int getLengthFlags(byte[] packet)
+    public int getLength(byte[] packet)
     {
         byte[] a = parsePacket(packet, 16, 4);
-        return ByteBuffer.wrap(a).getInt();
+        return ByteBuffer.wrap(a).getInt()>>3;
     }
+
+    public int getfFlag(byte[] packet)
+    {
+        byte[] a = parsePacket(packet, 16, 4);
+        return ByteBuffer.wrap(a).getInt() & (1<<1);
+    }
+
+    public int getsFlag(byte[] packet)
+    {
+        byte[] a = parsePacket(packet, 16, 4);
+        return ByteBuffer.wrap(a).getInt() & (1<<2);
+    }
+    public int getaFlag(byte[] packet)
+    {
+        byte[] a = parsePacket(packet, 16, 4);
+        return ByteBuffer.wrap(a).getInt() & (1<<0);
+    }
+
 
     public int getCheck(byte[] packet)
     {
