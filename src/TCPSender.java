@@ -18,10 +18,15 @@ public class TCPSender
     private int largestAck;
     private InetAddress address;
 
+    private int packetCount;
+    private int reCount;
+    private int dupCount;
+
     private DatagramSocket socket;
     private LinkedList<Quad> queue;
     private Semaphore sem;
     private long timeOut;
+    private int fin;
 
     public TCPSender( int port, String remoteIP, int remotePort, String fileName, int mtu, int sws)
     {
@@ -30,6 +35,7 @@ public class TCPSender
         this.remotePort = remotePort;
         this.fileName = fileName;
         this.mtu = mtu;
+        this.fin = 0;
         this.sws = sws;
         try{
 
@@ -100,7 +106,7 @@ public class TCPSender
         Reader rThread = new Reader();
 
         lThread.start();
-        //rThread.start();
+       // rThread.start();
 
         FileInputStream file = null;
         try{
@@ -136,6 +142,7 @@ public class TCPSender
                     sem.release();
                     socket.send(new DatagramPacket(packet, packet.length, address, remotePort));
                     printSend(packet);
+                    packetCount++;
                     System.out.println("Sending packet");
                     seq+=te;
                     }
@@ -160,9 +167,9 @@ public class TCPSender
         System.out.println("Start fin");
         try
         {
-            while(largestAck != seq)
+            while(largestAck >= seq)
             {
-                System.out.println(largestAck + " - " + seq);
+                //System.out.println(largestAck + " - " + seq);
             }
             byte[] packet = createTCPPacket(seq, 1, new byte[0], 0, 1, 0);
             socket.send(new DatagramPacket(packet, packet.length, address, remotePort));
@@ -180,6 +187,7 @@ public class TCPSender
 
             printSend(packet);
 
+            fin = 1;
 
             System.out.println("Finished FIN protocol");
 
@@ -255,10 +263,15 @@ public class TCPSender
 
             while(true)
             {
-                if(largestAck == seq)
+                if(fin == 1)
                 {
                     return;
                 }
+                /*if(largestAck == seq)
+                {
+                    return;
+                }
+                */
                 DatagramPacket receive = new DatagramPacket(buf, buf.length);
                 try
                 {
@@ -305,6 +318,7 @@ public class TCPSender
 
                 if(counter == 4)
                 {
+                    dupCount++;
                     byte[] packet = queue.peek().getPacket(); 
 
                     packet = changeTimeTCPPacket(packet, System.nanoTime());
@@ -358,7 +372,7 @@ public class TCPSender
         {
             while(true)
             {
-                if(largestAck == seq)
+                if(fin == 1)
                 {
                     return;
                 }
@@ -382,6 +396,7 @@ public class TCPSender
                         {
 
                             socket.send(new DatagramPacket(packet, packet.length, address, remotePort));
+                            reCount++;
                             printSend(packet);
                         }
                         catch(Exception e)
