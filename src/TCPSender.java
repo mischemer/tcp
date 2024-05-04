@@ -15,6 +15,7 @@ public class TCPSender
     private int sws;
     
     private int seq;
+    private int largestAck;
     private InetAddress address;
 
     private DatagramSocket socket;
@@ -58,16 +59,28 @@ public class TCPSender
 
             byte[] packet = createTCPPacket(0, 0, new byte[0], 1, 0 ,0);
             socket.send(new DatagramPacket(packet, packet.length, address, remotePort));
-            System.out.println("Send syn");
+            printSend(packet);
 
             byte[] buf = new byte[mtu+24];
             DatagramPacket receive = new DatagramPacket(buf, buf.length);
             socket.receive(receive);
-            System.out.println("Received ack");
+            printReceive(buf);
+            if(getaFlag(buf) == 1)
+            {
 
+                System.out.println("Received ack");
+            }
+            else
+            {
+
+                System.out.println("Didn't receive ack");
+            }
+
+            seq++;
             packet = createTCPPacket(0, 1, new byte[0], 0, 0 ,1);
             socket.send(new DatagramPacket(packet, packet.length, address, remotePort));
 
+            printSend(packet);
 
            System.out.println("Finished Handshake Sender");
         }
@@ -111,7 +124,10 @@ public class TCPSender
                 {}
                 if( te != -1)
                 {
-                    byte[] packet = createTCPPacket(seq, 1, buffer, 0, 0, 0);
+                    
+                    byte[] newBuf = new byte[te];
+                    newBuf = System.arraycopy(buffer, 0, newBuf, te);
+                    byte[] packet = createTCPPacket(seq, 1, newBuf, 0, 0, 0);
                     try{
                     sem.acquire();
                     }
@@ -122,7 +138,9 @@ public class TCPSender
                     try{
                     sem.release();
                     socket.send(new DatagramPacket(packet, packet.length, address, remotePort));
+                    printSend(packet);
                     System.out.println("Sending packet");
+                    seq+=te;
                     }
                     catch(Exception e)
                     {}
@@ -140,20 +158,28 @@ public class TCPSender
     public void fin()
     {
     
+        System.out.println("Start fin");
         try
         {
+            while(largestAck != seq)
+            {
+                System.out.println(largestAck + " - " + seq);
+            }
             byte[] packet = createTCPPacket(seq, 1, new byte[0], 0, 1, 0);
             socket.send(new DatagramPacket(packet, packet.length, address, remotePort));
-            System.out.println("Send Fin");
+            printSend(packet);
 
             byte[] buf = new byte[mtu+24];
             DatagramPacket receive = new DatagramPacket(buf, buf.length);
             socket.receive(receive);
+            printReceive(buf);
             System.out.println("Receive fin ak");
 
-            packet = createTCPPacket(seq+1, 2, new byte[0], 0, 0, 1);
+            seq++;
+            packet = createTCPPacket(seq, 2, new byte[0], 0, 0, 1);
             socket.send(new DatagramPacket(packet, packet.length, address, remotePort));
 
+            printSend(packet);
 
 
             System.out.println("Finished FIN protocol");
@@ -235,11 +261,17 @@ public class TCPSender
                 {
 
                     socket.receive(receive);
+                    printReceive(buf);
+                    System.out.println("Received ack");
                 }
                 catch(Exception e)
                 {
                 }
                 int currAck = getAck(buf);
+                if(currAck > largestAck)
+                {
+                    largestAck = currAck;
+                }
 
                 long rtt = getTime(buf);
 
@@ -251,13 +283,14 @@ public class TCPSender
                 catch(Exception e)
                 {
                 }
-                while(queue.peek().getSeq() < currAck)
+                while(queue.peek() != null && queue.peek().getSeq() < currAck)
                 {
                     queue.pop();
                 }
 
-                if(queue.peek().getSeq() == currAck && lastAck == currAck)
+                if(queue.peek() != null && queue.peek().getSeq() == currAck && lastAck == currAck && currAck > lastAck)
                 {
+                    lastAck = currAck;
                     counter++;
 
                 }
@@ -276,6 +309,7 @@ public class TCPSender
                     {
 
                         socket.send(new DatagramPacket(packet, packet.length, address, remotePort));
+                        printSend(packet);
                     }
                     catch(Exception e)
                     {
@@ -383,7 +417,107 @@ public class TCPSender
         System.arraycopy(packet, index, copy, 0, length);
         return copy;
     }
+public void printReceive(byte[] packet)
+    {
+        StringBuilder printString = new StringBuilder();
+        printString.append("rcv " + System.currentTimeMillis() + " ");
+        int synFlag = getsFlag(packet);
+        int ackFlag = getaFlag(packet);
+        int finFlag = getfFlag(packet);
+        String sString = new String();
+        String aString = new String();
+        String fString = new String();
+        if (synFlag == 4)
+        {
+            sString = "S";
+        }
+        else
+        {
+            sString = "-";
+        }
+        if (ackFlag == 1)
+        {
+            aString = "A";
+        }
+        else
+        {
+            aString = "-";
+        }
+        
+        if (finFlag == 2)
+        {
+            fString = "F";
+        }
+        else
+        {
+            fString = "-";
+        }
+        printString.append(sString + " ");
+        printString.append(aString + " ");
+        printString.append(fString + " ");
+        int length = getLength(packet);
+        if (length > 0)
+        {
+            printString.append("D ");
+        }
+        else
+        {
+            printString.append("- ");
+        }
+        printString.append(getSeq(packet) + " " + length + " " + getAck(packet));
+        System.out.println(printString);
+    }
 
+    public void printSend(byte[] packet)
+    {
+        StringBuilder printString = new StringBuilder();
+        printString.append("snd " + System.currentTimeMillis() + " ");
+        int synFlag = getsFlag(packet);
+        int ackFlag = getaFlag(packet);
+        int finFlag = getfFlag(packet);
+        String sString = new String();
+        String aString = new String();
+        String fString = new String();
+        if (synFlag == 4)
+        {
+            sString = "S";
+        }
+        else
+        {
+            sString = "-";
+        }
+        if (ackFlag == 1)
+        {
+            aString = "A";
+        }
+        else
+        {
+            aString = "-";
+        }
+
+        if (finFlag == 2)
+        {
+            fString = "F";
+        }
+        else
+        {
+            fString = "-";
+        }
+        printString.append(sString + " ");
+        printString.append(aString + " ");
+        printString.append(fString + " ");
+        int length = getLength(packet);
+        if (length > 0)
+        {
+            printString.append("D ");
+        }
+        else
+        {
+            printString.append("- ");
+        }
+        printString.append(getSeq(packet) + " " + length + " " + getAck(packet));
+        System.out.println(printString);
+    }
     public class Quad
     {
         private byte[] packet;

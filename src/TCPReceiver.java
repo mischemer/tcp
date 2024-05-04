@@ -15,6 +15,7 @@ public class TCPReceiver
     private ArrayList<byte[]> queue;
     private int portToSend;
     private InetAddress addressToSend;
+    private int nxtSeq;
 
     public TCPReceiver(int port, int mtu, int sws, String fileName)
     {
@@ -33,22 +34,70 @@ public class TCPReceiver
     {
         handShake();
         data();
+        fin();
     }
 
+    public void fin()
+    {
+        try
+        {
+            
+            FileOutputStream file = new FileOutputStream(new File(fileName));
+
+            for(int i = 0; i < queue.size(); i++)
+            {
+                file.write(getData(queue.get(i)));
+            }
+            byte[] packet = createTCPPacket(1, nxtSeq, new byte[0], 0, 1, 1);
+            listenOnSocket.send(new DatagramPacket(packet, packet.length, addressToSend, portToSend));
+            printSend(packet);
+
+            byte[] buf = new byte[mtu+24];
+            DatagramPacket receive = new DatagramPacket(buf, buf.length);
+            listenOnSocket.receive(receive);
+            if(getaFlag(buf) == 2)
+            {
+
+                System.out.println("Receive final ak");
+            }
+            else
+            {
+
+                System.out.println("Didnt receive final ack");
+            }
+            printReceive(buf);
+
+
+
+        }
+        catch(Exception e)
+        {
+        }
+
+
+
+
+
+    }
     public void data()
     {
-        int ack = Integer.MAX_VALUE;
         byte[] buf = new byte[mtu + 24];
+        nxtSeq = 1;
 
         while(true)
         {
             DatagramPacket receive = new DatagramPacket(buf, buf.length);
             try{
             listenOnSocket.receive(receive);
+            printReceive(buf);
             }
             catch(Exception e)
             {}
 
+            if(getfFlag(buf) == 2)
+            {
+                return;
+            }
             int currSeq = getSeq(buf);
             int i = 0;
             for(i = 0; i < queue.size(); i++)
@@ -63,16 +112,27 @@ public class TCPReceiver
             for(int j = 0; j < queue.size(); j++)
             {
                 int seq = getSeq(queue.get(i));
-                int length = getLengthFlags(queue.get(i))/8;
+                int length = getLength(queue.get(i));
 
-                if(ack < seq)
+                if(seq > nxtSeq)
                 {
                     break;
                 }
-                queue.remove(i);
-                ack = seq + length + 1;
+
+                nxtSeq = seq + length;
+                if(i > 0)
+                {
+                    queue.remove(i-1);
+                }
 
             }
+
+            byte[] nxtAck = createTCPPacket(1,nxtSeq, new byte[0], 0, 0, 1); 
+            try{
+            listenOnSocket.send(new DatagramPacket(nxtAck, nxtAck.length, addressToSend, portToSend));
+            printSend(nxtAck);
+            }catch(Exception e)
+            {}
 
         }
 
@@ -89,7 +149,17 @@ public class TCPReceiver
 
             DatagramPacket receive = new DatagramPacket(buf, buf.length);
             listenOnSocket.receive(receive);
-            System.out.println("Received syn");
+            printReceive(buf);
+            if(getsFlag(buf) == 4)
+            {
+
+                System.out.println("Received syn");
+            }
+            else
+            {
+
+                System.out.println("Didn't Received syn");
+            }
 
 
             portToSend = receive.getPort();
@@ -98,8 +168,19 @@ public class TCPReceiver
             byte[] packet = createTCPPacket(0, 1, new byte[0], 1, 0, 1);
             listenOnSocket.send(new DatagramPacket(packet, packet.length, addressToSend, portToSend));
 
+            printSend(packet);
             listenOnSocket.receive(receive);
-            System.out.println("Finished Handshake");
+            printReceive(buf);
+            if(getaFlag(buf) == 1)
+            {
+
+                System.out.println("Received ack");
+            }
+            else
+            {
+
+                System.out.println("Didn't receive ack");
+            } 
         }
 
         catch(Exception e)
@@ -157,6 +238,13 @@ public class TCPReceiver
         return ByteBuffer.wrap(a).getInt();
     }
 
+    public byte[] getData(byte[] packet)
+    {
+        int length = getLength(packet);
+        return parsePacket(packet, 24, length);
+
+    }
+
 
     public byte[] parsePacket(byte[] packet, int index, int length)
     {
@@ -165,6 +253,107 @@ public class TCPReceiver
         return copy;
     }
 
+    public void printReceive(byte[] packet)
+    {
+        StringBuilder printString = new StringBuilder();
+        printString.append("rcv " + System.currentTimeMillis() + " ");
+        int synFlag = getsFlag(packet);
+        int ackFlag = getaFlag(packet);
+        int finFlag = getfFlag(packet);
+        String sString = new String();
+        String aString = new String();
+        String fString = new String();
+        if (synFlag == 4)
+        {
+            sString = "S";
+        }
+        else
+        {
+            sString = "-";
+        }
+        if (ackFlag == 1)
+        {
+            aString = "A";
+        }
+        else
+        {
+            aString = "-";
+        }
+
+        if (finFlag == 2)
+        {
+            fString = "F";
+        }
+        else
+        {
+            fString = "-";
+        }
+        printString.append(sString + " ");
+        printString.append(aString + " ");
+        printString.append(fString + " ");
+        int length = getLength(packet);
+        if (length > 0)
+        {
+            printString.append("D ");
+        }
+        else
+        {
+            printString.append("- ");
+        }
+        printString.append(getSeq(packet) + " " + length + " " + getAck(packet));
+        System.out.println(printString);
+    }
+
+    public void printSend(byte[] packet)
+    {
+        StringBuilder printString = new StringBuilder();
+        printString.append("snd " + System.currentTimeMillis() + " ");
+        int synFlag = getsFlag(packet);
+        int ackFlag = getaFlag(packet);
+        int finFlag = getfFlag(packet);
+        String sString = new String();
+        String aString = new String();
+        String fString = new String();
+        if (synFlag == 4)
+        {
+            sString = "S";
+        }
+        else
+        {
+            sString = "-";
+        }
+        if (ackFlag == 1)
+        {
+            aString = "A";
+        }
+        else
+        {
+            aString = "-";
+        }
+
+        if (finFlag == 2)
+        {
+            fString = "F";
+        }
+        else
+        {
+            fString = "-";
+        }
+        printString.append(sString + " ");
+        printString.append(aString + " ");
+        printString.append(fString + " ");
+        int length = getLength(packet);
+        if (length > 0)
+        {
+            printString.append("D ");
+        }
+        else
+        {
+            printString.append("- ");
+        }
+        printString.append(getSeq(packet) + " " + length + " " + getAck(packet));
+        System.out.println(printString);
+    }
 
     public byte[] createTCPPacket(int seq, int ack, byte[] data, int sFlag, int fFlag, int aFlag)
     {
