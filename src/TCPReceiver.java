@@ -13,9 +13,11 @@ public class TCPReceiver
 
     private DatagramSocket listenOnSocket;
     private ArrayList<byte[]> queue;
+    private ArrayList<byte[]> queueSave;
     private int portToSend;
     private InetAddress addressToSend;
     private int nxtSeq;
+    private FileOutputStream file;
 
     public TCPReceiver(int port, int mtu, int sws, String fileName)
     {
@@ -26,7 +28,12 @@ public class TCPReceiver
         this.fileName = fileName;
 
         this.queue = new ArrayList<byte[]>();
+        this.queueSave = new ArrayList<byte[]>();
        
+        try
+        {
+            this.file = new FileOutputStream(new File(fileName));
+        }catch(Exception e){}
 
     }
 
@@ -42,11 +49,9 @@ public class TCPReceiver
         try
         {
             
-            FileOutputStream file = new FileOutputStream(new File(fileName));
-
-            for(int i = 0; i < queue.size(); i++)
+            for(int i = 0; i < queueSave.size(); i++)
             {
-                file.write(getData(queue.get(i)));
+                file.write(getData(queueSave.get(i)));
             }
             byte[] packet = createTCPPacket(1, nxtSeq, new byte[0], 0, 1, 1);
             listenOnSocket.send(new DatagramPacket(packet, packet.length, addressToSend, portToSend));
@@ -55,7 +60,7 @@ public class TCPReceiver
             byte[] buf = new byte[mtu+24];
             DatagramPacket receive = new DatagramPacket(buf, buf.length);
             listenOnSocket.receive(receive);
-            if(getaFlag(buf) == 2)
+            if(getaFlag(buf) == 1)
             {
 
                 System.out.println("Receive final ak");
@@ -84,10 +89,12 @@ public class TCPReceiver
         byte[] buf = new byte[mtu + 24];
         nxtSeq = 1;
 
+        try{
         while(true)
         {
-            DatagramPacket receive = new DatagramPacket(buf, buf.length);
             try{
+
+            DatagramPacket receive = new DatagramPacket(buf, buf.length);
             listenOnSocket.receive(receive);
             printReceive(buf);
             }
@@ -96,9 +103,12 @@ public class TCPReceiver
 
             if(getfFlag(buf) == 2)
             {
+                nxtSeq++;
                 return;
             }
             int currSeq = getSeq(buf);
+            byte[] hold = new byte[mtu + 24];
+            System.arraycopy(buf, 0, hold, 0 ,mtu+24);
             int i = 0;
             for(i = 0; i < queue.size(); i++)
             {
@@ -108,6 +118,16 @@ public class TCPReceiver
                 }
             }
             queue.add(i, buf);
+
+            int k = 0;
+            for(k = 0; k <queueSave.size(); k++)
+            {
+                if(currSeq < getSeq(queueSave.get(k)))
+                {
+                    break;
+                }
+            }
+            queueSave.add(k,hold);
 
             for(int j = 0; j < queue.size(); j++)
             {
@@ -122,7 +142,12 @@ public class TCPReceiver
                 nxtSeq = seq + length;
                 if(i > 0)
                 {
+                    try{
+                    //file.write(getData(queue.get(i-1)));
+                    }catch(Exception e)
+                    {System.out.println(e);}
                     queue.remove(i-1);
+                    i++;
                 }
 
             }
@@ -136,6 +161,7 @@ public class TCPReceiver
 
         }
 
+        }catch(Exception e){}
     }
 
     public void handShake()

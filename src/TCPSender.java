@@ -100,7 +100,7 @@ public class TCPSender
         Reader rThread = new Reader();
 
         lThread.start();
-        rThread.start();
+        //rThread.start();
 
         FileInputStream file = null;
         try{
@@ -109,6 +109,7 @@ public class TCPSender
         }
         catch(Exception e)
         {}
+        try{
         byte[] buffer = new byte[mtu];
 
         while(true)
@@ -116,17 +117,13 @@ public class TCPSender
             if(queue.size() < sws)
             {
                 int te = -5;
-                try{
 
                 te = file.read(buffer);
-                }
-                catch(Exception e)
-                {}
                 if( te != -1)
                 {
                     
                     byte[] newBuf = new byte[te];
-                    newBuf = System.arraycopy(buffer, 0, newBuf, te);
+                    System.arraycopy(buffer, 0, newBuf, 0, te);
                     byte[] packet = createTCPPacket(seq, 1, newBuf, 0, 0, 0);
                     try{
                     sem.acquire();
@@ -152,6 +149,8 @@ public class TCPSender
                 }
             }
         }
+        }catch(Exception e)
+        {}
     }
 
 
@@ -256,6 +255,10 @@ public class TCPSender
 
             while(true)
             {
+                if(largestAck == seq)
+                {
+                    return;
+                }
                 DatagramPacket receive = new DatagramPacket(buf, buf.length);
                 try
                 {
@@ -355,6 +358,41 @@ public class TCPSender
         {
             while(true)
             {
+                if(largestAck == seq)
+                {
+                    return;
+                }
+                for(int i = 0; i < queue.size(); i++)
+                {
+                    if( queue.get(i).getTime() < System.nanoTime() )
+                    {
+                        Quad temp = queue.remove(i);
+
+                        if(temp.getRe() > 16)
+                        {
+                            break;
+                        }
+
+                        temp.setTime(System.nanoTime() + timeOut);
+                        temp.setRe(temp.getRe()+1);
+                        queue.add(i,temp);
+
+                        byte[] packet = changeTimeTCPPacket(temp.getPacket(), System.nanoTime());
+                        try
+                        {
+
+                            socket.send(new DatagramPacket(packet, packet.length, address, remotePort));
+                            printSend(packet);
+                        }
+                        catch(Exception e)
+                        {}
+
+
+                    }
+
+
+                }
+                
 
 
             }
